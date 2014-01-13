@@ -21,7 +21,11 @@ package org.cryptacular.bean;
 
 import java.io.InputStream;
 
+import org.bouncycastle.crypto.Digest;
+import org.cryptacular.SaltedHash;
 import org.cryptacular.generator.Nonce;
+import org.cryptacular.generator.SaltProvider;
+import org.cryptacular.spec.Spec;
 import org.cryptacular.util.HashUtil;
 
 /**
@@ -29,32 +33,55 @@ import org.cryptacular.util.HashUtil;
  *
  * @author Marvin S. Addison
  */
-public class SaltedHashBean extends EncodingHashBean
+public class SaltedHashBean implements HashBean<SaltedHash>
 {
-  /** Random salt source. */
-  private Nonce saltSource;
+  /** Salt provider. */
+  private SaltProvider saltProvider;
 
   /** Number of hash iterations. */
   private int iterations = 1;
 
+  /** Digest specification. */
+  private Spec<Digest> digestSpec;
+
 
   /**
-   * @return  Random salt source.
+   * @return  Digest specification that determines the instance of {@link Digest} used to compute the hash.
    */
-  public Nonce getSaltSource()
+  public Spec<Digest> getDigestSpec()
   {
-    return saltSource;
+    return digestSpec;
   }
 
 
   /**
-   * Sets the random salt source.
+   * Sets the digest specification that determines the instance of {@link Digest} used to compute the hash.
    *
-   * @param  saltSource  Source of random salt data.
+   * @param  digestSpec  Digest algorithm specification.
    */
-  public void setSaltSource(final Nonce saltSource)
+  public void setDigestSpec(final Spec<Digest> digestSpec)
   {
-    this.saltSource = saltSource;
+    this.digestSpec = digestSpec;
+  }
+
+
+  /**
+   * @return  Gets the provider of salt bytes.
+   */
+  public SaltProvider getSaltProvider()
+  {
+    return saltProvider;
+  }
+
+
+  /**
+   * Sets the provider of salt bytes.
+   *
+   * @param  provider  Salt provider.
+   */
+  public void setSaltProvider(final SaltProvider provider)
+  {
+    this.saltProvider = provider;
   }
 
 
@@ -80,32 +107,40 @@ public class SaltedHashBean extends EncodingHashBean
 
   /** {@inheritDoc} */
   @Override
-  public boolean compare(final byte[] input, final String hash)
+  public SaltedHash hash(final byte[] input)
   {
-    return HashUtil.compareSaltedHash(
-      digestSpec.newInstance(),
-      input,
-      iterations,
-      decode(hash));
+    return HashUtil.hash(digestSpec.newInstance(), input, saltProvider, iterations);
   }
 
 
   /** {@inheritDoc} */
   @Override
-  public boolean compare(final InputStream input, final String hash)
+  public SaltedHash hash(final InputStream input)
   {
-    return HashUtil.compareSaltedHash(
-      digestSpec.newInstance(),
-      input,
-      iterations,
-      decode(hash));
+    return HashUtil.hash(digestSpec.newInstance(), input, saltProvider, iterations);
   }
 
 
   /** {@inheritDoc} */
   @Override
-  protected byte[] computeHash(final byte[] input)
+  public boolean compare(final byte[] input, final SaltedHash saltedHash)
   {
-    return HashUtil.hash(digestSpec.newInstance(), input, saltSource.generate(), iterations);
+    return HashUtil.compareSaltedHash(
+      digestSpec.newInstance(),
+      input,
+      iterations,
+      saltedHash.concatenateSalt(true));
+  }
+
+
+  /** {@inheritDoc} */
+  @Override
+  public boolean compare(final InputStream input, final SaltedHash saltedHash)
+  {
+    return HashUtil.compareSaltedHash(
+      digestSpec.newInstance(),
+      input,
+      iterations,
+      saltedHash.concatenateSalt(true));
   }
 }

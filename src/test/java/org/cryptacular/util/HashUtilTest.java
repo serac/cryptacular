@@ -26,6 +26,11 @@ import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.digests.SHA1Digest;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.util.encoders.Hex;
+import org.cryptacular.SaltedHash;
+import org.cryptacular.generator.ConstantSaltProvider;
+import org.cryptacular.generator.NullSaltProvider;
+import org.cryptacular.generator.SaltProvider;
+import org.cryptacular.spec.CodecSpec;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -48,23 +53,34 @@ public class HashUtilTest
       new Object[] {
         new SHA1Digest(),
         "deoxyribonucleic acid",
-        null,
+        new NullSaltProvider(),
         1,
         "d1a0cce60feaa9f555ffc308aa44ca41a9255928",
+        CodecSpec.HEX,
       },
       new Object[] {
         new SHA1Digest(),
         "protoporphyrin-9",
-        SALT,
+        new ConstantSaltProvider(SALT),
         1,
         "98d8f48fbfa0d6923ba29b99a12591aba0b452380001020304050607",
+        CodecSpec.HEX,
       },
       new Object[] {
         new SHA256Digest(),
         "N-arachidonoylethanolamine",
-        SALT,
+        new ConstantSaltProvider(SALT),
         5,
         "456220dc121776a64f23d0bb3c5bd29fada6894dcbf69a275592ef2a60bd5e540001020304050607",
+        CodecSpec.HEX,
+      },
+      new Object[] {
+        new SHA1Digest(),
+        "password",
+        new ConstantSaltProvider(CodecUtil.b64("NjtR/A==")),
+        1,
+        "7fyOZXGp+gKMziV/2Px7RIMkxyI2O1H8",
+        CodecSpec.BASE64,
       },
     };
   }
@@ -88,19 +104,31 @@ public class HashUtilTest
 
   @Test(dataProvider = "salted-hash-iter")
   public void testSaltedHashIter(
-    final Digest digest, final String data, final byte[] salt, final int iterations, final String expected)
+    final Digest digest,
+    final String data,
+    final SaltProvider salt,
+    final int iterations,
+    final String expected,
+    final CodecSpec outputEncoding)
     throws Exception
   {
-    assertEquals(Hex.toHexString(HashUtil.hash(digest, data.getBytes("ASCII"), salt, iterations)), expected);
+    final SaltedHash result = HashUtil.hash(digest, ByteUtil.toBytes(data), salt, iterations);
+    assertEquals(result.concatenateSalt(true, outputEncoding.newInstance().getEncoder()), expected);
   }
 
 
   @Test(dataProvider = "salted-hash-iter")
   public void testCompareSaltedHash(
-    final Digest digest, final String data, final byte[] salt, final int iterations, final String expected)
+    final Digest digest,
+    final String data,
+    final SaltProvider salt,
+    final int iterations,
+    final String expected,
+    final CodecSpec outputEncoding)
     throws Exception
   {
-    assertTrue(HashUtil.compareSaltedHash(digest, data.getBytes("ASCII"), iterations, CodecUtil.hex(expected)));
+    final byte[] expectedBytes = CodecUtil.decode(outputEncoding.newInstance().getDecoder(), expected);
+    assertTrue(HashUtil.compareSaltedHash(digest, ByteUtil.toBytes(data), iterations, expectedBytes));
   }
 
 

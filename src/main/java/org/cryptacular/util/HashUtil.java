@@ -21,6 +21,7 @@ package org.cryptacular.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.bouncycastle.crypto.Digest;
@@ -28,7 +29,10 @@ import org.bouncycastle.crypto.digests.SHA1Digest;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.digests.SHA3Digest;
 import org.bouncycastle.crypto.digests.SHA512Digest;
-import org.bouncycastle.crypto.prng.DigestRandomGenerator;
+import org.cryptacular.SaltedHash;
+import org.cryptacular.generator.ConstantSaltProvider;
+import org.cryptacular.generator.NullSaltProvider;
+import org.cryptacular.generator.SaltProvider;
 
 /**
  * Utility class for computing cryptographic hashes.
@@ -51,7 +55,7 @@ public final class HashUtil
    */
   public static byte[] hash(final Digest digest, final byte[] data)
   {
-    return hashInternal(digest, data, null);
+    return hashInternal(digest, data, new NullSaltProvider(), 1, null);
   }
 
 
@@ -65,7 +69,7 @@ public final class HashUtil
    */
   public static byte[] hash(final Digest digest, final InputStream input)
   {
-    return hashInternal(digest, input, null);
+    return hashInternal(digest, input, new NullSaltProvider(), 1, null);
   }
 
 
@@ -74,17 +78,13 @@ public final class HashUtil
    *
    * @param  digest  Hash algorithm.
    * @param  data  Data to hash.
-   * @param  saltSize  Number of bytes of random salt to append to digest.
+   * @param  salt  Provider of salt data.
    *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
+   * @return  Container for digest output and salt.
    */
-  public static byte[] hash(final Digest digest, final byte[] data, final int saltSize)
+  public static SaltedHash hash(final Digest digest, final byte[] data, final SaltProvider salt)
   {
-    final DigestRandomGenerator rng = new DigestRandomGenerator(digest);
-    rng.addSeedMaterial(NonceUtil.timestampNonce(saltSize));
-    final byte[] salt = new byte[saltSize];
-    rng.nextBytes(salt);
-    return hash(digest, data, salt);
+    return hash(digest, data, salt, 1);
   }
 
 
@@ -93,55 +93,13 @@ public final class HashUtil
    *
    * @param  digest  Hash algorithm.
    * @param  input  Input stream containing data to hash.
-   * @param  saltSize  Number of bytes of random salt to append to digest.
+   * @param  salt  Provider of salt data.
    *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
+   * @return  Container for digest output and salt.
    */
-  public static byte[] hash(final Digest digest, final InputStream input, final int saltSize)
+  public static SaltedHash hash(final Digest digest, final InputStream input, final SaltProvider salt)
   {
-    final DigestRandomGenerator rng = new DigestRandomGenerator(digest);
-    rng.addSeedMaterial(NonceUtil.timestampNonce(saltSize));
-    final byte[] salt = new byte[saltSize];
-    rng.nextBytes(salt);
-    return hash(digest, input, salt);
-  }
-
-
-  /**
-   * Computes the salted hash of the given data using the given algorithm.
-   *
-   * @param  digest  Hash algorithm.
-   * @param  data  Data to hash.
-   * @param  salt  Salt to append to hash.
-   *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
-   */
-  public static byte[] hash(final Digest digest, final byte[] data, final byte[] salt)
-  {
-    final byte[] output = hashInternal(digest, data, salt);
-    if (salt != null) {
-      System.arraycopy(salt, 0, output, digest.getDigestSize(), salt.length);
-    }
-    return output;
-  }
-
-
-  /**
-   * Computes the salted hash of the given data using the given algorithm.
-   *
-   * @param  digest  Hash algorithm.
-   * @param  input  Input stream containing data to hash.
-   * @param  salt  Salt to append to hash.
-   *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
-   */
-  public static byte[] hash(final Digest digest, final InputStream input, final byte[] salt)
-  {
-    final byte[] output = hashInternal(digest, input, salt);
-    if (salt != null) {
-      System.arraycopy(salt, 0, output, digest.getDigestSize(), salt.length);
-    }
-    return output;
+    return hash(digest, input, salt, 1);
   }
 
 
@@ -150,19 +108,19 @@ public final class HashUtil
    *
    * @param  digest  Hash algorithm.
    * @param  data  Data to hash.
-   * @param  salt  Salt to append to hash.
+   * @param  salt  Provider of salt data.
    * @param  iterations  Number of hash iterations to perform on input data.
    *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
+   * @return  Container for digest output and salt.
    */
-  public static byte[] hash(final Digest digest, final byte[] data, final byte[] salt, final int iterations)
+  public static SaltedHash hash(final Digest digest, final byte[] data, final SaltProvider salt, final int iterations)
   {
-    final byte[] result = hashInternal(digest, data, salt);
-    iterate(digest, result, iterations);
-    if (salt != null) {
-      System.arraycopy(salt, 0, result, digest.getDigestSize(), salt.length);
-    }
-    return result;
+    final ByteBuffer buffer = ByteBuffer.allocate(salt.getLength());
+    final byte[] hash = hashInternal(digest, data, salt, iterations, buffer);
+    final byte[] collectedSalt = new byte[buffer.limit()];
+    buffer.flip();
+    buffer.get(collectedSalt);
+    return new SaltedHash(hash, collectedSalt);
   }
 
 
@@ -171,19 +129,20 @@ public final class HashUtil
    *
    * @param  digest  Hash algorithm.
    * @param  input  Input stream containing data to hash.
-   * @param  salt  Salt to append to hash.
+   * @param  salt  Provider of salt data.
    * @param  iterations  Number of hash iterations to perform on input data.
    *
-   * @return  Hash bytes with appended salt that completely fill returned byte array.
+   * @return  Container for digest output and salt.
    */
-  public static byte[] hash(final Digest digest, final InputStream input, final byte[] salt, final int iterations)
+  public static SaltedHash hash(
+    final Digest digest, final InputStream input, final SaltProvider salt, final int iterations)
   {
-    final byte[] result = hashInternal(digest, input, salt);
-    iterate(digest, result, iterations);
-    if (salt != null) {
-      System.arraycopy(salt, 0, result, digest.getDigestSize(), salt.length);
-    }
-    return result;
+    final ByteBuffer buffer = ByteBuffer.allocate(salt.getLength());
+    final byte[] hash = hashInternal(digest, input , salt, iterations, buffer);
+    final byte[] collectedSalt = new byte[buffer.limit()];
+    buffer.flip();
+    buffer.get(collectedSalt);
+    return new SaltedHash(hash, collectedSalt);
   }
 
 
@@ -234,7 +193,8 @@ public final class HashUtil
   {
     final byte[] salt = new byte[saltedHash.length - digest.getDigestSize()];
     System.arraycopy(saltedHash, digest.getDigestSize(), salt, 0, salt.length);
-    return Arrays.equals(hash(digest, input, salt, iterations), saltedHash);
+    final SaltedHash result = hash(digest, input, new ConstantSaltProvider(salt), iterations);
+    return Arrays.equals(result.concatenateSalt(true), saltedHash);
   }
 
 
@@ -255,7 +215,8 @@ public final class HashUtil
   {
     final byte[] salt = new byte[saltedHash.length - digest.getDigestSize()];
     System.arraycopy(saltedHash, digest.getDigestSize(), salt, 0, salt.length);
-    return Arrays.equals(hash(digest, input, salt, iterations), saltedHash);
+    final SaltedHash result = hash(digest, input, new ConstantSaltProvider(salt), iterations);
+    return Arrays.equals(result.concatenateSalt(true), saltedHash);
   }
 
 
@@ -370,22 +331,24 @@ public final class HashUtil
    *
    * @param  digest  Digest algorithm.
    * @param  data  Data to hash.
-   * @param  salt  Optional salt.
+   * @param  salt  Salt provider.
+   * @param  iterations  Number of hash rounds.
+   * @param  saltBuf  Buffer to collect salt.
    *
-   * @return  Byte array of length equal to digest + salt filled with digest bytes only.
+   * @return  Digest bytes.
    */
-  private static byte[] hashInternal(final Digest digest, final byte[] data, final byte[] salt)
+  private static byte[] hashInternal(
+    final Digest digest, final byte[] data, final SaltProvider salt, final int iterations, final ByteBuffer saltBuf)
   {
-    final int outSize;
-    if (salt != null) {
-      digest.update(salt, 0, salt.length);
-      outSize = digest.getDigestSize() + salt.length;
-    } else {
-      outSize = digest.getDigestSize();
+    final byte[] saltBytes = salt.generate(0, iterations);
+    if (saltBytes != null) {
+      digest.update(saltBytes, 0, saltBytes.length);
+      saltBuf.put(saltBytes);
     }
+    final byte[] output = new byte[digest.getDigestSize()];
     digest.update(data, 0, data.length);
-    final byte[] output = new byte[outSize];
     digest.doFinal(output, 0);
+    iterate(digest, output, salt, iterations, saltBuf);
     return output;
   }
 
@@ -396,20 +359,20 @@ public final class HashUtil
    * @param  digest  Digest algorithm.
    * @param  in  Input stream containing data to hash.
    * @param  salt  Optional salt.
+   * @param  iterations  Number of hash rounds.
+   * @param  saltBuf  Buffer to collect salt.
    *
-   * @return  Byte array of length equal to digest + salt filled with digest bytes only.
+   * @return  Digest bytes.
    */
-  private static byte[] hashInternal(final Digest digest, final InputStream in, final byte[] salt)
+  private static byte[] hashInternal(
+    final Digest digest, final InputStream in, final SaltProvider salt, final int iterations, final ByteBuffer saltBuf)
   {
-    final byte[] buffer = new byte[StreamUtil.CHUNK_SIZE];
-    final int outSize;
-    if (salt != null) {
-      digest.update(salt, 0, salt.length);
-      outSize = digest.getDigestSize() + salt.length;
-    } else {
-      outSize = digest.getDigestSize();
+    final byte[] saltBytes = salt.generate(0, iterations);
+    if (saltBytes != null) {
+      digest.update(saltBytes, 0, saltBytes.length);
+      saltBuf.put(saltBytes);
     }
-    final byte[] output = new byte[outSize];
+    final byte[] buffer = new byte[StreamUtil.CHUNK_SIZE];
     int length;
     try {
       while ((length = in.read(buffer)) > 0) {
@@ -418,7 +381,9 @@ public final class HashUtil
     } catch (IOException e) {
       throw new RuntimeException("Error reading stream", e);
     }
+    final byte[] output = new byte[digest.getDigestSize()];
     digest.doFinal(output, 0);
+    iterate(digest, output, salt, iterations, saltBuf);
     return output;
   }
 
@@ -428,15 +393,28 @@ public final class HashUtil
    *
    * @param  digest  Digest algorithm.
    * @param  hash  Initial hash output (i.e. first iteration).
-   * @param  iterations  Number of iterations to compute. Actual number is one less than this value since it expects
-   *                     a hash to have been performed to produce the hash parameter.
+   * @param  salt  Salt provider.
+   * @param  iterations  Number of iterations to compute.
+   * @param  saltBuf  Buffer to collect salt.
    */
-  private static void iterate(final Digest digest, final byte[] hash, final int iterations)
+  private static void iterate(
+    final Digest digest, final byte[] hash, final SaltProvider salt, final int iterations, final ByteBuffer saltBuf)
   {
-    final int size = digest.getDigestSize();
+    byte[] saltBytes;
     for (int i = 1; i < iterations; i++) {
-      digest.update(hash, 0, size);
+      saltBytes = salt.generate(i, iterations);
+      if (saltBytes != null) {
+        digest.update(saltBytes, 0, saltBytes.length);
+        saltBuf.put(saltBytes);
+      }
+      digest.update(hash, 0, hash.length);
       digest.doFinal(hash, 0);
+    }
+    saltBytes = salt.generate(iterations, iterations);
+    if (saltBytes != null) {
+      digest.update(saltBytes, 0, saltBytes.length);
+      digest.doFinal(hash, 0);
+      saltBuf.put(saltBytes);
     }
   }
 }

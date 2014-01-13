@@ -19,8 +19,9 @@
 
 package org.cryptacular.bean;
 
-import org.cryptacular.generator.LimitException;
-import org.cryptacular.generator.Nonce;
+import org.cryptacular.SaltedHash;
+import org.cryptacular.generator.ConstantSaltProvider;
+import org.cryptacular.generator.SaltProvider;
 import org.cryptacular.spec.CodecSpec;
 import org.cryptacular.spec.DigestSpec;
 import org.cryptacular.util.CodecUtil;
@@ -45,29 +46,29 @@ public class SaltedHashBeanTest
         CodecUtil.b64("7FHsteHnm6XQsJT1TTKbxw=="),
         new DigestSpec("SHA1"),
         CodecSpec.BASE64,
-        new StaticNonce(CodecUtil.b64("ehp6PCnojSegFpRvStqQ9A==")),
+        new ConstantSaltProvider(CodecUtil.b64("ehp6PCnojSegFpRvStqQ9A==")),
         2,
         "xNnVXeRl3w5AWJBIdXSkmU1hFj16Gno8KeiNJ6AWlG9K2pD0",
       },
     };
   }
 
+
   @Test(dataProvider = "test-data")
   public void testHash(
     final byte[] input,
     final DigestSpec digest,
     final CodecSpec codec,
-    final Nonce saltSource,
+    final SaltProvider saltProvider,
     final int iterations,
     final String expected)
     throws Exception
   {
     final SaltedHashBean bean = new SaltedHashBean();
     bean.setDigestSpec(digest);
-    bean.setCodecSpec(codec);
     bean.setIterations(iterations);
-    bean.setSaltSource(saltSource);
-    assertEquals(bean.hash(input), expected);
+    bean.setSaltProvider(saltProvider);
+    assertEquals(bean.hash(input).concatenateSalt(true, codec.newInstance().getEncoder()), expected);
   }
 
 
@@ -76,50 +77,16 @@ public class SaltedHashBeanTest
     final byte[] input,
     final DigestSpec digest,
     final CodecSpec codec,
-    final Nonce saltSource,
+    final SaltProvider saltProvider,
     final int iterations,
     final String expected)
     throws Exception
   {
     final SaltedHashBean bean = new SaltedHashBean();
+    final byte[] hashWithSalt = CodecUtil.decode(codec.newInstance().getDecoder(), expected);
     bean.setDigestSpec(digest);
-    bean.setCodecSpec(codec);
-    bean.setSaltSource(saltSource);
+    bean.setSaltProvider(saltProvider);
     bean.setIterations(iterations);
-    assertTrue(bean.compare(input, expected));
-  }
-
-
-  /**
-   * Nonce generator implementation with invariant nonce value.
-   */
-  private static class StaticNonce  implements Nonce
-  {
-    /** Static nonce value. */
-    private byte[] nonce;
-
-    /**
-     * Creates a new instance with given static nonce value.
-     *
-     * @param  nonce  Static nonce value.
-     */
-    public StaticNonce(final byte[] nonce)
-    {
-      this.nonce = nonce;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public byte[] generate() throws LimitException
-    {
-      return nonce;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public int getLength()
-    {
-      return nonce.length;
-    }
+    assertTrue(bean.compare(input, new SaltedHash(hashWithSalt, digest.newInstance().getDigestSize(), true)));
   }
 }
